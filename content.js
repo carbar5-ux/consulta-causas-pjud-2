@@ -121,6 +121,22 @@
     }
     return null;
   }
+  // Navega: menú "Consulta Unificada" y luego pestaña "Búsqueda por Nombre".
+  let ultimoIntento = 0;
+  async function irAlFormulario() {
+    if (Date.now() - ultimoIntento < 4000) return false;
+    ultimoIntento = Date.now();
+    let tab = findClickable('Búsqueda por Nombre');
+    if (!tab) {
+      const menu = findClickable('Consulta Unificada');
+      if (!menu) return false;
+      menu.click();
+      for (let i = 0; i < 20 && !tab; i++) { await sleep(500); tab = findClickable('Búsqueda por Nombre'); }
+    }
+    if (tab) { tab.click(); await sleep(1500); return true; }
+    return false;
+  }
+
   function getForm() {
     const paterno = byLabel('Apellido Paterno', 'input') || byAttr('input', /paterno|apepat|ape_pat|apellidop/);
     if (!paterno) return null;
@@ -276,15 +292,12 @@
     if (st.status !== 'running') return;
 
     let f = getForm();
-    if (!f) {
-      const tab = findClickable('Búsqueda por Nombre');
-      if (tab) { tab.click(); await sleep(1500); f = getForm(); }
-    }
+    if (!f && await irAlFormulario()) f = getForm();
     if (!f) {
       if (IS_TOP && Date.now() - (st.formSeenAt || 0) > 5000) {
         await save({ msg: captchaVisible()
           ? '⚠️ Resuelve el captcha de la página para continuar.'
-          : 'Abre Consulta Unificada → "Búsqueda por Nombre" para continuar.' });
+          : 'Entrando a Consulta Unificada → "Búsqueda por Nombre"… Si no avanza, ábrela tú desde el menú de la izquierda.' });
       }
       await sleep(1500);
       return;
@@ -461,7 +474,7 @@
             <div id="complist"><small>Abre "Búsqueda por Nombre" para cargar la lista…</small></div>
           </div>
           <div class="btns">
-            <button id="goto" class="sec">Ir a "Búsqueda por Nombre"</button>
+            <button id="goto" class="sec">Ir al formulario de búsqueda</button>
             <button id="start">Buscar en todo</button>
             <button id="pause" class="sec">Pausar</button>
             <button id="resume">Continuar</button>
@@ -520,13 +533,9 @@
         compIdx: 0, tribList: null, tribIdx: 0, results: [], log: [], msg: 'Iniciando…', pending: false, searches: 0, startedAt: Date.now()
       });
     };
-    function irANombre() {
-      const tab = findClickable('Búsqueda por Nombre');
-      if (tab) { tab.click(); return true; }
-      return false;
-    }
-    $('goto').onclick = () => {
-      if (!irANombre()) alert('Entra primero a "Consulta Unificada" (menú de la izquierda) y luego presiona este botón.');
+    function irANombre() { ultimoIntento = 0; return irAlFormulario(); }
+    $('goto').onclick = async () => {
+      if (!(await irANombre())) alert('No encontré el menú "Consulta Unificada". Ábrelo desde el menú de la izquierda (☰) y vuelve a intentar.');
     };
     $('pause').onclick = () => save({ status: 'paused', msg: 'En pausa.' });
     $('resume').onclick = () => save({ status: 'running', msg: 'Continuando…' });
@@ -592,7 +601,7 @@
       const sinForm = !st.formVisible;
       $('goto').style.display = sinForm && !running ? '' : 'none';
       $('msg').textContent = st.msg || (st.status === 'idle'
-        ? (sinForm ? 'No veo el formulario "Búsqueda por Nombre". Presiona "Ir a Búsqueda por Nombre" o entra a esa pestaña.'
+        ? (sinForm ? 'No veo el formulario "Búsqueda por Nombre". Presiona "Ir al formulario de búsqueda".'
                    : 'Ingresa el nombre y presiona "Buscar en todo".')
         : '');
       $('msg').className = 'msg' + (/⚠️|Error/.test(st.msg) ? ' warn' : '');
