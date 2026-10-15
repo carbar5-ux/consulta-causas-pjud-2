@@ -1,0 +1,40 @@
+{
+  "manifest_version": 3,
+  "name": "Buscador de causas PJUD",
+  "version": "1.0.0",
+  "description": "Uso personal: busca causas por nombre en todas las competencias de la Consulta Unificada del Poder Judicial de Chile y exporta los resultados.",
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "https://oficinajudicialvirtual.pjud.cl/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Buscador de causas PJUD",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://oficinajudicialvirtual.pjud.cl/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "all_frames": true,
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
