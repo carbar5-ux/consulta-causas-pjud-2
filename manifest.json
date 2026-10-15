@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Buscador de causas PJUD",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Uso personal: busca causas por nombre en todas las competencias de la Consulta Unificada del Poder Judicial de Chile y exporta los resultados.",
   "permissions": [
     "storage"

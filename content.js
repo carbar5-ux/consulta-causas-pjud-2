@@ -36,6 +36,8 @@
     pending: false,
     available: [],
     allComps: false,
+    searches: 0,
+    startedAt: 0,
     formVisible: false,
     formSeenAt: 0
   };
@@ -239,6 +241,11 @@
         continue;
       }
       if (tableHasRows(findTable())) break;
+      const seg = Math.round((Date.now() - start) / 1000);
+      if (seg > 0 && seg % 3 === 0) {
+        const cur = await load();
+        await save({ msg: cur.msg.replace(/ · esperando respuesta \d+ s$/, '') + ` · esperando respuesta ${seg} s` });
+      }
       if (!avisado && Date.now() - start > ESPERA_RESULTADOS_MS) { await save({ pending: false }); return { timeout: true }; }
     }
     await sleep(500);
@@ -259,9 +266,8 @@
     let { compIdx, tribIdx, tribList } = s;
     tribIdx += 1;
     if (!tribList || tribIdx >= tribList.length) { compIdx += 1; tribIdx = 0; tribList = null; }
-    await save({ results: s.results.concat(nuevos), compIdx, tribIdx, tribList });
-    if (nota) await addLog(`${comp.text} — ${trib.text}: ${nota}`);
-    else if (rows.length || !s.tribList || s.tribList.length === 1) await addLog(`${comp.text} — ${trib.text}: ${rows.length} causa(s)`);
+    await save({ results: s.results.concat(nuevos), compIdx, tribIdx, tribList, searches: (s.searches || 0) + 1 });
+    await addLog(`${comp.text} — ${trib.text}: ${nota || (rows.length + ' causa(s)')}`);
   }
 
   // -------------------------------------------------------- ciclo principal
@@ -426,6 +432,13 @@
         .msg { margin-top: 10px; padding: 7px 8px; border-radius: 6px; background: #eef3f8; font-size: 12px; min-height: 18px; }
         .msg.warn { background: #fff4d6; }
         .count { margin-top: 8px; font-weight: 600; }
+        .prog { margin-top: 10px; }
+        .bar { height: 10px; background: #e4eaf1; border-radius: 6px; overflow: hidden; }
+        .bar i { display: block; height: 100%; width: 0; background: #2e7d32; transition: width .4s; }
+        .bar.run i { background: linear-gradient(90deg, #2e7d32, #5cb85c, #2e7d32); background-size: 200% 100%; animation: mov 1.2s linear infinite; }
+        @keyframes mov { from { background-position: 200% 0; } to { background-position: 0 0; } }
+        .ptxt { display: flex; justify-content: space-between; font-size: 11.5px; margin-top: 4px; color: #33414f; }
+        .ptxt b { font-size: 13px; color: #1d2733; }
         .res { margin-top: 4px; max-height: 160px; overflow: auto; border-top: 1px solid #e1e7ee; }
         .res div { padding: 4px 0; border-bottom: 1px solid #eef1f4; font-size: 11.5px; }
         .res small { color: #5d6b79; }
@@ -457,6 +470,10 @@
           <div class="btns">
             <button id="csv" class="sec">Descargar Excel (CSV)</button>
             <button id="clear" class="sec">Limpiar</button>
+          </div>
+          <div class="prog" id="prog">
+            <div class="bar" id="bar"><i id="fill"></i></div>
+            <div class="ptxt"><b id="pct">0%</b><span id="pdet"></span></div>
           </div>
           <div class="msg" id="msg"></div>
           <div class="count" id="count"></div>
@@ -500,7 +517,7 @@
       if (allComps) irANombre();
       await save({
         status: 'running', persona, filtroTrib: norm($('filtro').value), compsSel, allComps,
-        compIdx: 0, tribList: null, tribIdx: 0, results: [], log: [], msg: 'Iniciando…', pending: false
+        compIdx: 0, tribList: null, tribIdx: 0, results: [], log: [], msg: 'Iniciando…', pending: false, searches: 0, startedAt: Date.now()
       });
     };
     function irANombre() {
@@ -516,7 +533,7 @@
     $('stop').onclick = () => save({ status: 'stopped', msg: 'Búsqueda detenida.', pending: false });
     $('clear').onclick = async () => {
       if (!confirm('¿Borrar los resultados y el registro?')) return;
-      await save({ status: 'idle', results: [], log: [], msg: '', compIdx: 0, tribList: null, tribIdx: 0, pending: false });
+      await save({ status: 'idle', results: [], log: [], msg: '', compIdx: 0, tribList: null, tribIdx: 0, pending: false, searches: 0, startedAt: 0 });
     };
     $('csv').onclick = async () => {
       const st = await load();
@@ -579,6 +596,27 @@
                    : 'Ingresa el nombre y presiona "Buscar en todo".')
         : '');
       $('msg').className = 'msg' + (/⚠️|Error/.test(st.msg) ? ' warn' : '');
+      const total = st.compsSel.length;
+      let pct = 0;
+      if (st.status === 'done') pct = 100;
+      else if (total) {
+        const parcial = st.tribList && st.tribList.length ? st.tribIdx / st.tribList.length : 0;
+        pct = Math.min(99, Math.floor(((st.compIdx + parcial) / total) * 100));
+      }
+      $('prog').style.display = st.status === 'idle' ? 'none' : '';
+      $('fill').style.width = pct + '%';
+      $('bar').className = 'bar' + (running ? ' run' : '');
+      $('pct').textContent = pct + '%';
+      const partes = [];
+      if (total) partes.push(`Competencia ${Math.min(st.compIdx + 1, total)} de ${total}`);
+      if (st.tribList && st.tribList.length > 1) partes.push(`tribunal ${st.tribIdx + 1} de ${st.tribList.length}`);
+      partes.push(`${st.searches || 0} búsqueda(s)`);
+      if (st.startedAt) {
+        const s2 = Math.round((Date.now() - st.startedAt) / 1000);
+        partes.push(`${Math.floor(s2 / 60)}:${String(s2 % 60).padStart(2, '0')} min`);
+      }
+      $('pdet').textContent = partes.join(' · ');
+      if (running) root.querySelector('details').open = true;
       $('count').textContent = st.results.length || st.status !== 'idle' ? `${st.results.length} causa(s) encontradas` : '';
       $('res').innerHTML = '';
       for (const r of st.results.slice(-100)) {
