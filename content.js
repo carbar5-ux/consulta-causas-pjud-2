@@ -35,6 +35,8 @@
     msg: '',
     pending: false,
     available: [],
+    allComps: false,
+    formVisible: false,
     formSeenAt: 0
   };
 
@@ -70,12 +72,36 @@
     for (let i = 0; i < r.snapshotLength; i++) out.push(r.snapshotItem(i));
     return out;
   }
+  // Busca la etiqueta visible (sin importar mayúsculas, tildes, ":" o "*")
+  // y devuelve el primer campo visible que viene después.
+  const clean = (s) => low(s).replace(/[:*]/g, '').trim();
+  const ownText = (el) => [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => n.nodeValue).join(' ');
+  const usable = (el) => !!el && (visible(el) || (el.tagName === 'SELECT' && visible(el.parentElement)));
+  function nextField(lab, tag) {
+    if (lab.tagName === 'LABEL' && lab.htmlFor) {
+      const el = document.getElementById(lab.htmlFor);
+      if (el && el.tagName.toLowerCase() === tag && usable(el)) return el;
+    }
+    try {
+      const it = document.evaluate(`following::${tag}`, lab, null, XPathResult.ORDERED_NODE_ITERATOR_TYPE, null);
+      for (let n, i = 0; (n = it.iterateNext()) && i < 40; i++) if (usable(n)) return n;
+    } catch (e) { /* el DOM cambió mientras se recorría */ }
+    return null;
+  }
   function byLabel(text, tag) {
-    for (const lab of xpathAll(`//*[normalize-space(text())="${text}"]`)) {
-      if (!visible(lab) || lab.tagName === 'TH') continue;
-      const f = document.evaluate(`following::${tag}[1]`, lab, null,
-        XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+    const target = clean(text);
+    for (const lab of document.querySelectorAll('label, span, b, strong, p, div, td, legend, h1, h2, h3, h4, h5, h6')) {
+      if (clean(ownText(lab)) !== target || !visible(lab)) continue;
+      const f = nextField(lab, tag);
       if (f) return f;
+    }
+    return null;
+  }
+  // Alternativa: buscar por id/name del campo.
+  function byAttr(tag, re, notRe) {
+    for (const el of document.querySelectorAll(tag)) {
+      const a = low(`${el.id || ''} ${el.name || ''}`);
+      if (re.test(a) && !(notRe && notRe.test(a)) && usable(el)) return el;
     }
     return null;
   }
@@ -94,16 +120,17 @@
     return null;
   }
   function getForm() {
-    const paterno = byLabel('Apellido Paterno', 'input');
+    const paterno = byLabel('Apellido Paterno', 'input') || byAttr('input', /paterno|apepat|ape_pat|apellidop/);
     if (!paterno) return null;
     return {
-      nombre: byLabel('Nombre', 'input'),
+      nombre: byLabel('Nombre', 'input') || byLabel('Nombres', 'input') ||
+              byAttr('input', /nombre/, /apellido|paterno|materno|razon|juridic/),
       paterno,
-      materno: byLabel('Apellido Materno', 'input'),
-      anio: byLabel('Año', 'input'),
-      comp: byLabel('Competencia', 'select'),
-      trib: byLabel('Tribunal', 'select'),
-      corte: byLabel('Corte', 'select'),
+      materno: byLabel('Apellido Materno', 'input') || byAttr('input', /materno|apemat|ape_mat|apellidom/),
+      anio: byLabel('Año', 'input') || byAttr('input', /anio|year|(^|[_ -])ano\b/),
+      comp: byLabel('Competencia', 'select') || byAttr('select', /competencia|comp/),
+      trib: byLabel('Tribunal', 'select') || byAttr('select', /tribunal|trib/),
+      corte: byLabel('Corte', 'select') || byAttr('select', /corte/),
       buscar: findButton('Buscar')
     };
   }
@@ -258,6 +285,14 @@
     }
     await save({ formSeenAt: Date.now() });
 
+    // Si se inició sin la lista de competencias cargada, revisar todas.
+    if (st.allComps && !st.compsSel.length) {
+      const todas = opts(f.comp).filter((o) => !isPlaceholder(o.text));
+      if (!todas.length) throw new Error('No encontré el selector de Competencia en la página.');
+      st = await save({ compsSel: todas, allComps: false });
+      await addLog(`Competencias a revisar: ${todas.map((c) => c.text).join(', ')}`);
+    }
+
     if (st.compIdx >= st.compsSel.length) {
       await save({ status: 'done', msg: `✅ Terminado: ${st.results.length} causa(s) encontradas.` });
       return;
@@ -339,10 +374,13 @@
     }
   }
 
-  // Publica las competencias disponibles para el panel.
-  let lastAvail = '';
+  // Publica si el formulario está visible y qué competencias ofrece.
+  // Solo escribe el frame que alguna vez vio el formulario.
+  let lastAvail = '', lastVisible = null;
   setInterval(async () => {
     const f = getForm();
+    const vis = !!f;
+    if (vis !== lastVisible && (vis || lastVisible)) { lastVisible = vis; await save({ formVisible: vis }); }
     if (!f || !f.comp) return;
     const av = opts(f.comp).filter((o) => !isPlaceholder(o.text));
     const sig = JSON.stringify(av);
@@ -357,6 +395,7 @@
   loop();
 
   // ------------------------------------------------------------------ panel
+  if (IS_TOP) save({ formVisible: false });      // se recalcula en 2 s
   const panel = IS_TOP ? createPanel() : { render() {} };
 
   function createPanel() {
@@ -409,6 +448,7 @@
             <div id="complist"><small>Abre "Búsqueda por Nombre" para cargar la lista…</small></div>
           </div>
           <div class="btns">
+            <button id="goto" class="sec">Ir a "Búsqueda por Nombre"</button>
             <button id="start">Buscar en todo</button>
             <button id="pause" class="sec">Pausar</button>
             <button id="resume">Continuar</button>
@@ -454,12 +494,22 @@
       if (!persona.nombre || !persona.paterno) { alert('Ingresa al menos el nombre y el apellido paterno.'); return; }
       const st = await load();
       const sel = boxes().filter((b) => b.checked).map((b) => b.value);
-      const compsSel = st.available.filter((c) => sel.includes(c.value));
-      if (!compsSel.length) { alert('Marca al menos una competencia (abre "Búsqueda por Nombre" si la lista está vacía).'); return; }
+      const allComps = !st.available.length;          // lista aún no cargada: revisar todas
+      const compsSel = allComps ? [] : st.available.filter((c) => sel.includes(c.value));
+      if (!allComps && !compsSel.length) { alert('Marca al menos una competencia.'); return; }
+      if (allComps) irANombre();
       await save({
-        status: 'running', persona, filtroTrib: norm($('filtro').value), compsSel,
+        status: 'running', persona, filtroTrib: norm($('filtro').value), compsSel, allComps,
         compIdx: 0, tribList: null, tribIdx: 0, results: [], log: [], msg: 'Iniciando…', pending: false
       });
+    };
+    function irANombre() {
+      const tab = findClickable('Búsqueda por Nombre');
+      if (tab) { tab.click(); return true; }
+      return false;
+    }
+    $('goto').onclick = () => {
+      if (!irANombre()) alert('Entra primero a "Consulta Unificada" (menú de la izquierda) y luego presiona este botón.');
     };
     $('pause').onclick = () => save({ status: 'paused', msg: 'En pausa.' });
     $('resume').onclick = () => save({ status: 'running', msg: 'Continuando…' });
@@ -522,7 +572,12 @@
       $('stop').disabled = !(running || paused);
       [...root.querySelectorAll('input')].forEach((i) => { i.disabled = running; });
 
-      $('msg').textContent = st.msg || (st.status === 'idle' ? 'Ingresa el nombre y presiona "Buscar en todo".' : '');
+      const sinForm = !st.formVisible;
+      $('goto').style.display = sinForm && !running ? '' : 'none';
+      $('msg').textContent = st.msg || (st.status === 'idle'
+        ? (sinForm ? 'No veo el formulario "Búsqueda por Nombre". Presiona "Ir a Búsqueda por Nombre" o entra a esa pestaña.'
+                   : 'Ingresa el nombre y presiona "Buscar en todo".')
+        : '');
       $('msg').className = 'msg' + (/⚠️|Error/.test(st.msg) ? ' warn' : '');
       $('count').textContent = st.results.length || st.status !== 'idle' ? `${st.results.length} causa(s) encontradas` : '';
       $('res').innerHTML = '';
