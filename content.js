@@ -195,6 +195,13 @@
   }
   const tableSig = (t) => (t && t.tBodies[0] ? t.tBodies[0].innerText.slice(0, 600) : '');
   const tableHasRows = (t) => !!(t && t.tBodies[0] && t.tBodies[0].rows.length);
+  function tableHasNoResults(t) {
+    if (!t) return false;
+    const scope = t.closest('.dataTables_wrapper') || t.parentElement;
+    const text = low(scope ? scope.innerText : t.innerText);
+    return /no se han encontrado resultados|no se encontraron resultados|no existen registros|no hay datos disponibles|no data available in table/.test(text);
+  }
+  const searchResponseReady = (t) => tableHasRows(t) || tableHasNoResults(t);
 
   function clickNext(t) {
     const scope = t.closest('.dataTables_wrapper') || t.parentElement?.parentElement || document;
@@ -256,7 +263,7 @@
         if (!avisado) { avisado = true; await save({ msg: '⚠️ Apareció un captcha: resuélvelo en la página y la búsqueda sigue sola.' }); }
         continue;
       }
-      if (tableHasRows(findTable())) break;
+      if (searchResponseReady(findTable())) break;
       const seg = Math.round((Date.now() - start) / 1000);
       if (seg > 0 && seg % 3 === 0) {
         const cur = await load();
@@ -290,6 +297,7 @@
   async function step() {
     let st = await load();
     if (st.status !== 'running') return;
+    if (!IS_TOP && !getForm()) { await sleep(1500); return; }
 
     let f = getForm();
     if (!f && await irAlFormulario()) f = getForm();
@@ -320,7 +328,7 @@
 
     // Si la página se recargó justo después de presionar Buscar, aprovechar ese resultado.
     if (st.pending) {
-      if (f.comp && f.comp.value === comp.value && tableHasRows(findTable()) && st.tribList) {
+      if (f.comp && f.comp.value === comp.value && searchResponseReady(findTable()) && st.tribList) {
         const rows = await readAllPages();
         await save({ pending: false });
         await recordAndAdvance(rows, comp, st.tribList[st.tribIdx]);
@@ -414,7 +422,6 @@
   loop();
 
   // ------------------------------------------------------------------ panel
-  if (IS_TOP) save({ formVisible: false });      // se recalcula en 2 s
   const panel = IS_TOP ? createPanel() : { render() {} };
 
   function createPanel() {

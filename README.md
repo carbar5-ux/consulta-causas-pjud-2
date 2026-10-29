@@ -29,8 +29,10 @@ El ícono de la extensión muestra u oculta el panel. Puedes pausar, continuar o
 ## Cómo funciona
 
 - Rellena el formulario de la página, cambia la competencia, deja la Corte en "Todas" y presiona **Buscar**.
+- Si el formulario está dentro de un iframe, solo ese frame ejecuta la búsqueda; los demás no interfieren con el avance.
 - Si el selector de Tribunal tiene la opción "Todos", hace una sola búsqueda por competencia. Si no, recorre cada tribunal.
 - Lee la tabla de resultados (Rol, Fecha, Caratulado, Tribunal), incluida la paginación, y elimina duplicados.
+- Reconoce los mensajes de “sin resultados” como una respuesta válida y continúa con la siguiente búsqueda, en vez de esperar hasta el timeout.
 - Espera 3 segundos entre búsquedas para no saturar el sitio.
 - Los datos quedan solo en tu navegador (no se envían a ningún servidor).
 
